@@ -47,7 +47,7 @@ void myMain(void) {
      memTestCaseInit();
      createTsk(startShell);
 
-     //myPrintf(0x2,"debug_myMain_end......\n");
+     // myPrintf(0x2,"debug_myMain_end......\n");
 
      tskEnd();
 }

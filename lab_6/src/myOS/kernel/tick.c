@@ -1,4 +1,4 @@
-extern void oneTickUpdateWallClock(void);       //TODO: to be generalized
+extern void oneTickUpdateWallClock(void);
 
 void (*tick_hook)(void) = 0;
 

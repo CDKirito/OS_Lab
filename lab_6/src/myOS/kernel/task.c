@@ -4,9 +4,7 @@
 #define NULL ((void *)0)
 
 void schedule(void);
-void destroyTsk(int takIndex);
-
-unsigned long pMemHandler;
+void tskDestroy(myTCB *tsk);
 
 myTCB tcbPool[TASK_NUM];//进程池的大小设置
 
@@ -14,163 +12,150 @@ myTCB* idleTsk;                /* idle 任务 */
 myTCB* currentTsk;             /* 当前任务 */
 myTCB* firstFreeTsk;           /* 下一个空闲的 TCB */
 
-#define TSK_RDY 0        //表示当前进程已经进入就绪队列中
-#define TSK_WAIT -1      //表示当前进程还未进入就绪队列中
-#define TSK_RUNING 1     //表示当前进程正在运行
-#define TSK_NONE 2       //表示进程池中的TCB为空未进行分配
-
 // 空闲任务，CPU空闲时运行
 // 一旦有其他任务进入就绪队列，就切换到其他任务
 void tskIdleBdy(void) {
-     while(1){
-          schedule();
-     }
+    while(1){
+        schedule();
+    }
 }
 
 // 空任务，用于初始化进程池
 void tskEmpty(void){
 }
 
-//就绪队列的结构体
-typedef struct rdyQueueFCFS{
-     myTCB * head;       //就绪队列的头结点
-     myTCB * tail;       //就绪队列的尾结点
-     myTCB * idleTsk;    //空闲任务
-} rdyQueueFCFS;
+//就绪队列结构体
+typedef struct rdyQueue{
+    myTCB * head;       //就绪队列的头结点
+    myTCB * tail;       //就绪队列的尾结点
+    myTCB * idleTsk;    //空闲任务
+} rdyQueue;
 
-rdyQueueFCFS rqFCFS;
+rdyQueue rdy_queue;
 
-//TODO:初始化就绪队列
-// FCFS 算法需要就绪队列实现先进先出
-void rqFCFSInit(myTCB* idleTsk) {  //对rqFCFS进行初始化处理
-     rqFCFS.head = NULL;           //初始化头结点
-     rqFCFS.tail = NULL;           //初始化尾结点
-     rqFCFS.idleTsk = idleTsk;     //设置空闲任务
+// 初始化就绪队列的头结点和尾结点，并设置空闲任务
+void rdyQueueInit(myTCB* idleTsk) {
+    rdy_queue.head = NULL;
+    rdy_queue.tail = NULL;
+    rdy_queue.idleTsk = idleTsk;     //设置空闲任务
 }
 
-//TODO: 如果就绪队列为空，返回True（需要填写）
-int rqFCFSIsEmpty(void) {//当head和tail均为NULL时，rqFCFS为空
-     return (rqFCFS.head == NULL && rqFCFS.tail == NULL);
+// 判断就绪队列是否为空
+int rdyQueueIsEmpty(void) {     //当head和tail均为NULL时，rdy_queue为空
+    return (rdy_queue.head == NULL && rdy_queue.tail == NULL);
 }
 
-//TODO: 从就绪队列rqFCFS中获取下一个任务，如果为空，返回空闲任务
-myTCB * nextFCFSTsk(void) {//获取下一个Tsk
-     if (rqFCFSIsEmpty()) {
-          return rqFCFS.idleTsk; //如果就绪队列为空，返回空闲任务
-     }
-     return rqFCFS.head; //否则返回头结点
+// 将tsk入队到就绪队列rdy_queue中
+void tskEnqueue(myTCB *tsk) {
+    if (rdyQueueIsEmpty()) {
+        rdy_queue.head = tsk; //如果就绪队列为空，将头结点指向当前任务
+        rdy_queue.tail = tsk; //尾结点也指向当前任务
+    } else {
+        rdy_queue.tail->nextTCB = tsk;  //将当前任务加入到尾结点的后面
+        rdy_queue.tail = tsk;           //更新尾结点为当前任务
+    }
+    tsk->nextTCB = NULL;        //将当前任务的下一个TCB指针置为NULL
 }
 
-//TODO:将tsk入队到就绪队列rqFCFS中
-void tskEnqueueFCFS(myTCB *tsk) {//将tsk入队rqFCFS
-     if (rqFCFSIsEmpty()) {
-          rqFCFS.head = tsk; //如果就绪队列为空，将头结点指向当前任务
-          rqFCFS.tail = tsk; //尾结点也指向当前任务
-     } else {
-          rqFCFS.tail->nextTCB = tsk; //将当前任务加入到尾结点的后面
-          rqFCFS.tail = tsk; //更新尾结点为当前任务
-     }
-     tsk->nextTCB = NULL; //将当前任务的下一个TCB指针置为NULL
+// 将task从就绪队列rdy_queue中出队
+void tskDequeue(myTCB *tsk) {
+    if (rdyQueueIsEmpty()) {   //如果就绪队列为空，直接返回
+        return; 
+    }
+    if (rdy_queue.head == tsk) { //如果要出队的任务是头结点
+        rdy_queue.head = tsk->nextTCB; //将头结点指向下一个任务
+        if (rdy_queue.head == NULL) { //如果头结点变为NULL，说明队列为空
+            rdy_queue.tail = NULL; //尾结点也置为NULL
+        }
+    } else { //如果要出队的任务不是头结点
+        myTCB *prev = rdy_queue.head; //从头结点开始查找前驱节点
+        while (prev->nextTCB != tsk && prev->nextTCB != NULL) {
+            prev = prev->nextTCB; //找到前驱节点
+        }
+        if (prev->nextTCB == tsk) { //如果找到了要出队的任务
+            prev->nextTCB = tsk->nextTCB; //将前驱节点的下一个指针指向要出队任务的下一个任务
+            if (tsk == rdy_queue.tail) { //如果要出队的任务是尾结点
+                rdy_queue.tail = prev; //更新尾结点为前驱节点
+            }
+        }
+    }
+    tsk->nextTCB = NULL;            //将出队的任务的下一个指针置为NULL
 }
 
-//TODO:将task从就绪队列rqFCFS中出队，并设置状态为TSK_WAIT
-void tskDequeueFCFS(myTCB *tsk) {//rqFCFS出队
-     if (rqFCFSIsEmpty()) {
-          return; //如果就绪队列为空，直接返回
-     }
-     if (rqFCFS.head == tsk) { //如果要出队的任务是头结点
-          rqFCFS.head = tsk->nextTCB; //将头结点指向下一个任务
-          if (rqFCFS.head == NULL) { //如果头结点变为NULL，说明队列为空
-               rqFCFS.tail = NULL; //尾结点也置为NULL
-          }
-     } else { //如果要出队的任务不是头结点
-          myTCB *prev = rqFCFS.head; //从头结点开始查找前驱节点
-          while (prev->nextTCB != tsk && prev->nextTCB != NULL) {
-               prev = prev->nextTCB; //找到前驱节点
-          }
-          if (prev->nextTCB == tsk) { //如果找到了要出队的任务
-               prev->nextTCB = tsk->nextTCB; //将前驱节点的下一个指针指向要出队任务的下一个任务
-               if (tsk == rqFCFS.tail) { //如果要出队的任务是尾结点
-                    rqFCFS.tail = prev; //更新尾结点为前驱节点
-               }
-          }
-     }
-}
+void tskEnd(void);
 
 //初始化栈空间（不需要填写）
 void stack_init(unsigned long **stk, void (*task)(void)){
-     *(*stk)-- = (unsigned long) 0x08;       //高地址
-     *(*stk)-- = (unsigned long) task;       //EIP
-     *(*stk)-- = (unsigned long) 0x0202;     //FLAG寄存器
+    // 硬件保存上下文，由 iret 指令恢复
+    *(*stk)-- = (unsigned long) tskEnd;
+    *(*stk)-- = (unsigned long) task;       //EIP
+    *(*stk)-- = (unsigned long) 0x0202;     //FLAG寄存器
 
-     *(*stk)-- = (unsigned long) 0xAAAAAAAA; //EAX
-     *(*stk)-- = (unsigned long) 0xCCCCCCCC; //ECX
-     *(*stk)-- = (unsigned long) 0xDDDDDDDD; //EDX
-     *(*stk)-- = (unsigned long) 0xBBBBBBBB; //EBX
+    *(*stk)-- = (unsigned long) 0xAAAAAAAA; //EAX
+    *(*stk)-- = (unsigned long) 0xCCCCCCCC; //ECX
+    *(*stk)-- = (unsigned long) 0xDDDDDDDD; //EDX
+    *(*stk)-- = (unsigned long) 0xBBBBBBBB; //EBX
 
-     *(*stk)-- = (unsigned long) 0x44444444; //ESP
-     *(*stk)-- = (unsigned long) 0x55555555; //EBP
-     *(*stk)-- = (unsigned long) 0x66666666; //ESI
-     *(*stk)   = (unsigned long) 0x77777777; //EDI
-
+    *(*stk)-- = (unsigned long) 0x44444444; //ESP，出栈时跳过
+    *(*stk)-- = (unsigned long) 0x55555555; //EBP
+    *(*stk)-- = (unsigned long) 0x66666666; //ESI
+    *(*stk)   = (unsigned long) 0x77777777; //EDI
 }
 
-// 将一个在进程池中的TCB设置为就绪状态，并将其加入到就绪队列中
+// 任务开始：任务状态设置为就绪 + 任务入队
 void tskStart(myTCB *tsk){
-     tsk->TSK_State = TSK_RDY;
-     tskEnqueueFCFS(tsk);
+    tsk->TSK_State = TSK_RDY;
+    tskEnqueue(tsk);
 }
 
-//进程池中一个在就绪队列中的TCB的结束（不需要填写）
+// 结束任务：任务出队 + 销毁任务 + 调度下一个任务
 void tskEnd(void){
-     //将一个在就绪队列中的TCB移除就绪队列
-     tskDequeueFCFS(currentTsk);
-     //由于TCB结束，我们将进程池中对应的TCB也删除
-     destroyTsk(currentTsk->TSK_ID);
-     //TCB结束后，我们需要进行一次调度
-     schedule();
+    tskDequeue(currentTsk);
+    tskDestroy(currentTsk);
+    schedule();
 }
 
-//TODO: 以tskBody为参数在进程池中创建一个进程，并调用tskStart函数，将其加入就绪队列（需要填写）
-int createTsk(void (*tskBody)(void)){//在进程池中创建一个进程，并把该进程加入到rqFCFS队列中
-     if (firstFreeTsk == NULL) {        //没有空闲的TCB可用
-          myPrintk(0x2, "No free TCB available.\n");
-          return -1; 
-     }
-     
-     myTCB *newTsk = firstFreeTsk;      //获取下一个空闲的TCB
-     firstFreeTsk = newTsk->nextTCB;    //更新下一个空闲的TCB
+// 创建任务：选择一个空闲的TCB，设置任务入口地址和栈空间，然后将任务加入到就绪队列中，返回任务ID
+int tskCreate(void (*tskBody)(void)){
+    if (firstFreeTsk == NULL) {        //没有空闲的TCB可用
+        myPrintk(0x2, "No free TCB available.\n");
+        return -1; 
+    }
+    
+    myTCB *newTsk = firstFreeTsk;      //获取下一个空闲的TCB
+    firstFreeTsk = newTsk->nextTCB;    //更新下一个空闲的TCB
 
-     newTsk->task_entrance = tskBody;   //设置任务入口地址
-     stack_init(&(newTsk->stkTop), tskBody); //初始化栈空间，栈顶指针已在TaskManagerInit初始化
+    newTsk->task_entrance = tskBody;   //设置任务入口地址
+    stack_init(&(newTsk->stkTop), tskBody); //初始化栈空间，栈顶指针已在TaskManagerInit初始化
 
-     tskStart(newTsk); //将新创建的任务加入到就绪队列中
-     
-     return newTsk->TSK_ID; //返回新创建任务的ID
+    tskStart(newTsk);  //将任务状态设置为就绪，并将任务入队
+    
+    return newTsk->TSK_ID; //返回新创建任务的ID
 }
 
-//TODO: 销毁进程，将其状态设置为TSK_NONE，并将其加入到空闲链表中
-void destroyTsk(int takIndex) {//在进程中寻找TSK_ID为takIndex的进程，并销毁该进程
-     if (takIndex < 0 || takIndex >= TASK_NUM) {
-          myPrintk(0x2, "Invalid task index: %d\n", takIndex);
-          return; //无效的任务索引
-     }
-     
-     myTCB *tsk = &tcbPool[takIndex]; //获取对应的TCB
-     if (tsk->TSK_State == TSK_NONE) {
-          myPrintk(0x2, "Task %d is not allocated.\n", takIndex);
-          return; //任务未分配，无法销毁
-     }
+// 销毁进程：设置任务状态为未分配，将TCB加入到空闲链表中
+void tskDestroy(myTCB *tsk) {
+    int takIndex = tsk->TSK_ID; //获取任务ID
+    if (takIndex < 0 || takIndex >= TASK_NUM) {
+        myPrintk(0x2, "Invalid task index: %d\n", takIndex);
+        return; //无效的任务索引
+    }
+    
+    myTCB *tsk = &tcbPool[takIndex]; //获取对应的TCB
+    if (tsk->TSK_State == TSK_NONE) {
+        myPrintk(0x2, "Task %d is not allocated.\n", takIndex);
+        return; //任务未分配，无法销毁
+    }
 
-     tsk->TSK_State = TSK_NONE; //将状态设置为未分配
-     tsk->nextTCB = firstFreeTsk; //将该TCB加入到空闲链表中
-     firstFreeTsk = tsk; //更新下一个空闲的TCB指针
+    tsk->TSK_State = TSK_NONE;    //将状态设置为未分配
+    tsk->nextTCB = firstFreeTsk;  //将该TCB加入到空闲链表中
+    firstFreeTsk = tsk;           //更新下一个空闲的TCB指针
 }
 
 unsigned long **prevTSK_StackPtr;
 unsigned long *nextTSK_StackPtr;
 
-//切换上下文（无需填写）
+// 切换上下文
 void context_switch(myTCB *prevTsk, myTCB *nextTsk) {
      prevTSK_StackPtr = &(prevTsk->stkTop);
      currentTsk = nextTsk;
@@ -178,19 +163,77 @@ void context_switch(myTCB *prevTsk, myTCB *nextTsk) {
      CTX_SW(prevTSK_StackPtr,nextTSK_StackPtr);
 }
 
-// FCFS调度，切换至下一个任务
-void scheduleFCFS(void) {
-     myTCB *nextTsk;
-     nextTsk = nextFCFSTsk();
-     context_switch(currentTsk,nextTsk);
+// 获取下一个任务（FCFS调度）
+myTCB * nextTskFCFS(void) {
+    if (rdyQueueIsEmpty()) {
+        return rdy_queue.idleTsk;   //如果就绪队列为空，返回空闲任务
+    }
+    return rdy_queue.head;          //否则返回头结点
 }
 
-//调度算法（无需填写）
+// FCFS调度
+void scheduleFCFS(void) {
+    myTCB *nextTsk;
+    nextTsk = nextTskFCFS();
+    if (currentTsk->have_run_time >= currentTsk->run_time) {
+        context_switch(currentTsk,nextTsk);
+    }
+}
+
+// 获取下一个任务（SJF调度）
+myTCB * nextTskSJF(void) {
+    if (rdyQueueIsEmpty()) {
+        return rdy_queue.idleTsk;   //如果就绪队列为空，返回空闲任务
+    }
+    myTCB *shortestJob = rdy_queue.head;
+    myTCB *current = rdy_queue.head->nextTCB;
+    while (current != NULL) {
+        if (current->run_time < shortestJob->run_time) {
+            shortestJob = current;
+        }
+        current = current->nextTCB;
+    }
+    return shortestJob;
+}
+
+// SJF调度
+void scheduleSJF(void) {
+    myTCB *nextTsk;
+    nextTsk = nextTskSJF();
+    if (currentTsk->have_run_time >= currentTsk->run_time) {
+        context_switch(currentTsk,nextTsk);
+    }
+}
+
+// 获取下一个任务（RR调度）
+myTCB * nextTskRR(void) {
+    if (rdyQueueIsEmpty()) {
+        return rdy_queue.idleTsk;   //如果就绪队列为空，返回空闲任务
+    }
+    return rdy_queue.head;          //否则返回头结点
+}
+
+// RR调度
+void scheduleRR(void) {
+    myTCB *nextTsk;
+    nextTsk = nextTskRR();
+    if (timeSlice <= 0) {
+        context_switch(currentTsk,nextTsk);
+        timeSlice = TIME_SLICE; // 重置时间片
+    } else if (currentTsk->have_run_time >= currentTsk->run_time) {
+        context_switch(currentTsk,nextTsk);
+        timeSlice = TIME_SLICE; // 重置时间片
+    } else {
+        timeSlice--; // 减少时间片
+    }
+}
+
+//调度算法
 void schedule(void) {
      scheduleFCFS();
 }
 
-//进入多任务调度模式(无需填写)
+// 进入多任务调度模式
 unsigned long BspContextBase[STACK_SIZE];              // BspContextBase 是一块为“主控线程/主程序”（即OS启动时的主流程）分配的专用栈空间。
 unsigned long *BspContext;
 void startMultitask(void) {
@@ -201,12 +244,11 @@ void startMultitask(void) {
      CTX_SW(prevTSK_StackPtr,nextTSK_StackPtr);        // 切换到下一个任务的上下文
 }
 
-//准备进入多任务调度模式(无需填写)
+// 任务管理器初始化：初始化进程池 + 创建 idle 任务 + 创建初始化任务 + 进入多任务模式
 void TaskManagerInit(void) {
      // 初始化进程池（所有的进程状态都是TSK_NONE）
-     int i;
      myTCB * thisTCB;
-     for(i=0;i<TASK_NUM;i++){                               //对进程池tcbPool中的进程进行初始化处理
+     for(int i = 0; i < TASK_NUM; i++){                     //对进程池tcbPool中的进程进行初始化处理
           thisTCB = &tcbPool[i];
           thisTCB->TSK_ID = i;
           thisTCB->stkTop = thisTCB->stack+STACK_SIZE-1;    //将栈顶指针复位
@@ -230,8 +272,8 @@ void TaskManagerInit(void) {
      firstFreeTsk = &tcbPool[1];
      
      //创建init任务
-     createTsk(initTskBody);
-    
+     tskCreate(initTskBody);
+
      //进入多任务状态
      myPrintk(0x2,"START MULTITASKING......\n");
      startMultitask();

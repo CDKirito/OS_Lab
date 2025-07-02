@@ -97,9 +97,11 @@ void tskDequeueFCFS(myTCB *tsk) {//rqFCFS出队
      }
 }
 
+void tskEnd(void);
+
 //初始化栈空间（不需要填写）
 void stack_init(unsigned long **stk, void (*task)(void)){
-     *(*stk)-- = (unsigned long) 0x08;       //高地址
+     *(*stk)-- = (unsigned long) tskEnd;     
      *(*stk)-- = (unsigned long) task;       //EIP
      *(*stk)-- = (unsigned long) 0x0202;     //FLAG寄存器
 

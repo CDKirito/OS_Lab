@@ -32,7 +32,6 @@ void oneTickUpdateWallClock(void){
 	if (wallClock_hook) wallClock_hook();
 }
 
-//TODO: buffer的长度：至少10个字节
 void getTimeStamp(unsigned char *buffer){
         sprintf(buffer,"[%02d:%02d:%02d:%03d]",hh,mm,ss,ms);
 }
